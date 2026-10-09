@@ -109,10 +109,11 @@ function doPost(e) {
     var action = (data.action || '').toString().toLowerCase().trim();
 
     // ==============================================================
-    // 1. DELETE ACTION (Strictly 1 record at a time to prevent loss)
+    // 1. DELETE ACTION (Single delete for Jobs, Bulk delete allowed for Mails)
     // ==============================================================
-    if (action === "delete") {
+    if (action === "delete" || action === "bulk_delete") {
       var targetSheetName = data.sheet || "Recent Jobs";
+      var isBulkAllowed = (data.allowBulk === true || action === "bulk_delete" || targetSheetName === "Recent Mails");
       var sheet = ss.getSheetByName(targetSheetName);
       if (!sheet) {
         return ContentService
@@ -121,11 +122,12 @@ function doPost(e) {
       }
 
       var matchCol = (data.identifierColumn || "slug").toString().trim();
-      var matchVal = (data.identifierValue || data.slug || "").toString().trim();
+      var matchVal = (data.identifierValue !== undefined && data.identifierValue !== null) ? data.identifierValue.toString().trim() : (data.slug || "").toString().trim();
+      var matchValuesList = Array.isArray(data.identifierValues) ? data.identifierValues.map(function(v) { return String(v).trim(); }) : null;
 
-      if (!matchVal) {
+      if (!matchVal && (!matchValuesList || matchValuesList.length === 0)) {
         return ContentService
-          .createTextOutput(JSON.stringify({ success: false, error: "Missing identifierValue / slug for deletion" }))
+          .createTextOutput(JSON.stringify({ success: false, error: "Missing identifierValue / identifierValues for deletion" }))
           .setMimeType(ContentService.MimeType.JSON);
       }
 
@@ -152,44 +154,55 @@ function doPost(e) {
       }
 
       var matchingRowIndices = [];
-      var deletedItem = null;
+      var deletedItems = [];
 
       for (var r = 1; r < dataRange.length; r++) {
-        if (dataRange[r][targetColIdx].toString().trim() === matchVal) {
+        var cellVal = dataRange[r][targetColIdx].toString().trim();
+        var isMatch = false;
+        if (matchValuesList) {
+          isMatch = matchValuesList.indexOf(cellVal) !== -1;
+        } else {
+          isMatch = (cellVal === matchVal);
+        }
+
+        if (isMatch) {
           matchingRowIndices.push(r + 1); // 1-based index in sheet
           var item = {};
           for (var j = 0; j < headers.length; j++) {
             item[headers[j]] = dataRange[r][j];
           }
-          deletedItem = item;
+          deletedItems.push(item);
         }
       }
 
       if (matchingRowIndices.length === 0) {
         return ContentService
-          .createTextOutput(JSON.stringify({ success: false, error: "No record found matching " + matchCol + " = '" + matchVal + "'" }))
+          .createTextOutput(JSON.stringify({ success: false, error: "No record found matching " + matchCol }))
           .setMimeType(ContentService.MimeType.JSON);
       }
 
-      // STRICT SAFETY CONSTRAINT: Delete at most 1 item!
-      if (matchingRowIndices.length > 1) {
+      // STRICT SAFETY CONSTRAINT: Recent Jobs must strictly delete at most 1 item!
+      if (matchingRowIndices.length > 1 && !isBulkAllowed) {
         return ContentService
           .createTextOutput(JSON.stringify({ 
             success: false, 
-            error: "Safety violation: Multiple records (" + matchingRowIndices.length + ") match '" + matchVal + "'. Deletions are strictly restricted to 1 job at a time."
+            error: "Safety violation: Multiple records (" + matchingRowIndices.length + ") match condition. Bulk deletion is only allowed for Recent Mails."
           }))
           .setMimeType(ContentService.MimeType.JSON);
       }
 
-      // Delete the exact row
-      sheet.deleteRow(matchingRowIndices[0]);
+      // Delete matched rows in REVERSE order so row indices do not shift!
+      for (var i = matchingRowIndices.length - 1; i >= 0; i--) {
+        sheet.deleteRow(matchingRowIndices[i]);
+      }
 
       return ContentService
         .createTextOutput(JSON.stringify({ 
           success: true, 
-          message: "Job deleted successfully", 
-          deletedJob: deletedItem,
-          rowDeleted: matchingRowIndices[0]
+          message: "Deleted " + matchingRowIndices.length + " record(s) successfully from " + targetSheetName, 
+          deletedCount: matchingRowIndices.length,
+          deletedItems: deletedItems,
+          rowsDeleted: matchingRowIndices
         }))
         .setMimeType(ContentService.MimeType.JSON);
     }

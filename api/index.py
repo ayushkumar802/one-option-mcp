@@ -11,6 +11,9 @@ import os
 import sys
 import re
 import json
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from datetime import datetime
 import requests
 import sqlglot
@@ -41,6 +44,13 @@ SCRIPT_URL = os.environ.get(
     "https://script.google.com/macros/s/AKfycbwWqJB2suETIxJwigR0OdUc75B6XKFkWlTTC-iE69al8ivkO_UKc902l26Jjx_hI_WICQ/exec"
 ).strip()
 SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "1bTkHhKxKF2bB9lvngF1tFqaQ7Ay8UqPOyxzXQDyepGs").strip()
+
+# Email Notifications Configuration (Gmail SMTP)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com").strip()
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "ayushkumarrio22@gmail.com").strip()
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "ilzhbhgcmdepdcfx").strip()
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "ayushkumarrio44@gmail.com").strip()
 
 mcp = FastMCP(
     "one-option-sheets-mcp",
@@ -150,6 +160,202 @@ def get_current_posted_date() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Helpers: Admin Email Notifications (Gmail SMTP)
+# ---------------------------------------------------------------------------
+def send_admin_email(subject: str, html_body: str, text_body: str = "") -> dict:
+    """Send an admin notification email via Gmail SMTP with timeout and error handling."""
+    if not EMAIL_HOST_USER or not EMAIL_HOST_PASSWORD or not ADMIN_EMAIL:
+        return {"sent": False, "error": "Email credentials not configured"}
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"One Option System <{EMAIL_HOST_USER}>"
+        msg["To"] = ADMIN_EMAIL
+
+        if text_body:
+            msg.attach(MIMEText(text_body, "plain", "utf-8"))
+        if html_body:
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT, timeout=12) as server:
+            server.starttls()
+            server.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
+            server.sendmail(EMAIL_HOST_USER, [ADMIN_EMAIL], msg.as_string())
+
+        return {"sent": True, "recipient": ADMIN_EMAIL}
+    except Exception as e:
+        print(f"[Email Notification Error] Failed to send email to {ADMIN_EMAIL}: {e}", file=sys.stderr)
+        return {"sent": False, "error": str(e)}
+
+
+def build_job_inserted_email(job: dict) -> tuple[str, str, str]:
+    title = job.get("title", "New Job Position")
+    subject = f"[One Option Alert] New Job Posted: {title}"
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }}
+        .card {{ max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; }}
+        .header {{ background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); padding: 24px; color: #ffffff; }}
+        .badge {{ display: inline-block; padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; background: rgba(255,255,255,0.25); color: #ffffff; }}
+        .content {{ padding: 24px; }}
+        .field {{ margin-bottom: 14px; }}
+        .label {{ font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; margin-bottom: 4px; }}
+        .value {{ font-size: 15px; font-weight: 500; color: #0f172a; }}
+        .footer {{ background: #f1f5f9; padding: 16px 24px; font-size: 12px; color: #64748b; text-align: center; border-top: 1px solid #e2e8f0; }}
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <div class="header">
+          <span class="badge">Job Created</span>
+          <h2 style="margin: 8px 0 0 0; font-size: 20px;">{title}</h2>
+          <p style="margin: 4px 0 0 0; opacity: 0.9; font-size: 13px;">One Option Manpower Consultancy</p>
+        </div>
+        <div class="content">
+          <div class="field"><div class="label">Company</div><div class="value">{job.get("companyName", "-")}</div></div>
+          <div class="field"><div class="label">Category / Subcategory</div><div class="value">{job.get("category", "-")} / {job.get("subcategory", "-")}</div></div>
+          <div class="field"><div class="label">Location</div><div class="value">{job.get("location", "-")}</div></div>
+          <div class="field"><div class="label">Salary Range</div><div class="value">{job.get("salaryRange", "-")}</div></div>
+          <div class="field"><div class="label">Job Type & Experience</div><div class="value">{job.get("jobType", "Full Time")} • {job.get("experience", "Fresher")} • {job.get("openings", "-")}</div></div>
+          <div class="field"><div class="label">Slug</div><div class="value"><code style="background:#f1f5f9;padding:2px 6px;border-radius:4px;">{job.get("slug", "-")}</code></div></div>
+          <div class="field"><div class="label">Posted Date</div><div class="value">{job.get("postedDate", "-")}</div></div>
+        </div>
+        <div class="footer">
+          Notification dispatched by One Option MCP Server • {datetime.now().strftime('%d %b %Y, %I:%M %p')}
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+    text = (
+        f"NEW JOB POSTED: {title}\n"
+        f"Company: {job.get('companyName', '-')}\n"
+        f"Category: {job.get('category', '-')}\n"
+        f"Location: {job.get('location', '-')}\n"
+        f"Salary: {job.get('salaryRange', '-')}\n"
+        f"Slug: {job.get('slug', '-')}\n"
+        f"Posted: {job.get('postedDate', '-')}\n"
+    )
+    return subject, html, text
+
+
+def build_job_deleted_email(job: dict) -> tuple[str, str, str]:
+    title = job.get("title", "Job Position")
+    slug = job.get("slug", "-")
+    subject = f"[One Option Alert] Job Deleted: {title}"
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }}
+        .card {{ max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.06); border: 1px solid #fee2e2; }}
+        .header {{ background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); padding: 24px; color: #ffffff; }}
+        .badge {{ display: inline-block; padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; background: rgba(255,255,255,0.25); color: #ffffff; }}
+        .content {{ padding: 24px; }}
+        .field {{ margin-bottom: 14px; }}
+        .label {{ font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; margin-bottom: 4px; }}
+        .value {{ font-size: 15px; font-weight: 500; color: #0f172a; }}
+        .footer {{ background: #fef2f2; padding: 16px 24px; font-size: 12px; color: #991b1b; text-align: center; border-top: 1px solid #fee2e2; }}
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <div class="header">
+          <span class="badge">Job Deleted</span>
+          <h2 style="margin: 8px 0 0 0; font-size: 20px;">{title}</h2>
+          <p style="margin: 4px 0 0 0; opacity: 0.9; font-size: 13px;">One Option Manpower Consultancy</p>
+        </div>
+        <div class="content">
+          <div class="field"><div class="label">Slug / Identifier</div><div class="value"><code style="background:#fee2e2;padding:2px 6px;border-radius:4px;color:#991b1b;">{slug}</code></div></div>
+          <div class="field"><div class="label">Company</div><div class="value">{job.get("companyName", "-")}</div></div>
+          <div class="field"><div class="label">Category</div><div class="value">{job.get("category", "-")}</div></div>
+          <div class="field"><div class="label">Location</div><div class="value">{job.get("location", "-")}</div></div>
+          <div class="field"><div class="label">Salary Range</div><div class="value">{job.get("salaryRange", "-")}</div></div>
+          <div class="field"><div class="label">Deleted At</div><div class="value">{datetime.now().strftime('%d %b %Y, %I:%M %p')}</div></div>
+        </div>
+        <div class="footer">
+          Notification dispatched by One Option MCP Server
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+    text = (
+        f"JOB DELETED: {title}\n"
+        f"Slug: {slug}\n"
+        f"Company: {job.get('companyName', '-')}\n"
+        f"Category: {job.get('category', '-')}\n"
+        f"Deleted At: {datetime.now().strftime('%d %b %Y, %I:%M %p')}\n"
+    )
+    return subject, html, text
+
+
+# ---------------------------------------------------------------------------
+# Helpers: SQL Expression Row Evaluator
+# ---------------------------------------------------------------------------
+def get_row_val(row: dict, col_name: str) -> str:
+    """Case-insensitive column lookup from row dict."""
+    col_clean = col_name.strip("'\"` ").lower()
+    for k, v in row.items():
+        if k.strip().lower() == col_clean:
+            return "" if v is None else str(v).strip()
+    return ""
+
+
+def eval_sql_where(row: dict, node) -> bool:
+    """Evaluate SQL WHERE conditions against a row dict."""
+    if node is None:
+        return True
+    try:
+        if isinstance(node, exp.Where):
+            return eval_sql_where(row, node.this)
+        if isinstance(node, exp.And):
+            return eval_sql_where(row, node.this) and eval_sql_where(row, node.expression)
+        if isinstance(node, exp.Or):
+            return eval_sql_where(row, node.this) or eval_sql_where(row, node.expression)
+        if isinstance(node, exp.Paren):
+            return eval_sql_where(row, node.this)
+        if isinstance(node, exp.Not):
+            return not eval_sql_where(row, node.this)
+        if isinstance(node, exp.EQ):
+            col_name = node.this.sql().strip("'\"`")
+            expected_val = node.expression.sql().strip("'\"`")
+            actual_val = get_row_val(row, col_name)
+            return actual_val.lower() == expected_val.lower()
+        if isinstance(node, exp.NEQ):
+            col_name = node.this.sql().strip("'\"`")
+            expected_val = node.expression.sql().strip("'\"`")
+            actual_val = get_row_val(row, col_name)
+            return actual_val.lower() != expected_val.lower()
+        if isinstance(node, exp.Like):
+            col_name = node.this.sql().strip("'\"`")
+            raw_pattern = node.expression.sql().strip("'\"`")
+            actual_val = get_row_val(row, col_name)
+            escaped = re.escape(raw_pattern).replace("%", ".*").replace("_", ".")
+            reg = f"^{escaped}$"
+            return bool(re.search(reg, actual_val, re.IGNORECASE))
+        if isinstance(node, exp.In):
+            col_name = node.this.sql().strip("'\"`")
+            actual_val = get_row_val(row, col_name)
+            options = [e.sql().strip("'\"`").lower() for e in node.expressions]
+            return actual_val.lower() in options
+    except Exception:
+        pass
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Query Parser & Executor
 # ---------------------------------------------------------------------------
 def process_sql_query(query: str, sheet_name: str, allowed_columns: list) -> dict:
@@ -226,54 +432,131 @@ def process_sql_query(query: str, sheet_name: str, allowed_columns: list) -> dic
         matched = []
 
         for r in rows:
-            match = True
-            if conditions:
+            if eval_sql_where(r, where):
+                matched.append(r)
+            elif conditions:
+                match = True
                 for col_k, expected_v in conditions.items():
                     actual_v = next((str(r[c]).strip() for c in r if c.lower() == col_k), None)
                     if actual_v is None or actual_v.lower() != expected_v.lower():
                         match = False
                         break
+                if match:
+                    matched.append(r)
             else:
                 r_slug = str(r.get("slug", "")).lower()
-                match = bool(r_slug and r_slug in where_text.lower())
-            if match:
-                matched.append(r)
+                if r_slug and r_slug in where_text.lower():
+                    matched.append(r)
 
         if len(matched) == 0:
             return {"success": False, "error": f"No record found matching condition: {where_text}"}
 
-        # Enforce single item deletion rule
-        if len(matched) > 1:
-            sample = [m.get("slug") or m.get("title") or m.get("Name") for m in matched[:3]]
+        # -------------------------------------------------------------------
+        # 4a. RECENT JOBS DELETION (Strictly 1 job at a time + Admin Email)
+        # -------------------------------------------------------------------
+        if sheet_name == "Recent Jobs":
+            if len(matched) > 1:
+                sample = [m.get("slug") or m.get("title") for m in matched[:3]]
+                return {
+                    "success": False,
+                    "error": (
+                        f"Safety check failed: Condition matches {len(matched)} records ({sample}...). "
+                        "Deletion of jobs is strictly allowed on ONE job at a time to prevent accidental data loss. "
+                        "Please target by unique 'slug'."
+                    )
+                }
+
+            target = matched[0]
+            match_col = "slug" if target.get("slug") else allowed_columns[0]
+            match_val = target.get(match_col)
+
+            res = post_sheet_action({
+                "action": "delete",
+                "sheet": sheet_name,
+                "identifierColumn": match_col,
+                "identifierValue": match_val
+            })
+
+            # Send Email Alert to Admin for Job Deletion
+            email_res = send_admin_email(*build_job_deleted_email(target))
+
             return {
-                "success": False,
-                "error": f"Safety check failed: Condition matches {len(matched)} records ({sample}...). Deletion is strictly allowed on ONE job/mail at a time. Please target by unique 'slug' or 'Email'."
+                "success": True,
+                "operation": "DELETE",
+                "sheet": "Recent Jobs",
+                "message": f"Deleted job '{target.get('title', match_val)}' from {sheet_name}",
+                "deleted_record": target,
+                "admin_email_notification": email_res,
+                "response": res
             }
 
-        target = matched[0]
-        if "slug" in target and target.get("slug"):
-            match_col = "slug"
-        elif conditions:
-            # Pick a column from conditions that exists in target with non-empty value
-            condition_col = next((c for c in target if c.lower() in conditions and target.get(c)), None)
-            match_col = condition_col or allowed_columns[0]
+        # -------------------------------------------------------------------
+        # 4b. RECENT MAILS DELETION (Bulk Deletion Allowed, e.g. Spam Cleanup)
+        # -------------------------------------------------------------------
         else:
-            match_col = allowed_columns[0]
-        match_val = target.get(match_col)
+            deleted_items = []
+            if len(matched) == 1:
+                target = matched[0]
+                match_col = "Timestamp" if target.get("Timestamp") else (next((c for c in target if c.lower() in conditions and target.get(c)), None) or allowed_columns[0])
+                match_val = target.get(match_col)
+                res = post_sheet_action({
+                    "action": "delete",
+                    "sheet": sheet_name,
+                    "identifierColumn": match_col,
+                    "identifierValue": match_val,
+                    "allowBulk": True
+                })
+                deleted_items.append(target)
+            else:
+                # Multiple records matched -> Bulk delete
+                # 1. Attempt batch delete via Google Apps Script
+                batch_res = None
+                try:
+                    ts_values = [m.get("Timestamp") for m in matched if m.get("Timestamp")]
+                    if ts_values:
+                        batch_res = post_sheet_action({
+                            "action": "bulk_delete",
+                            "sheet": sheet_name,
+                            "identifierColumn": "Timestamp",
+                            "identifierValues": ts_values,
+                            "allowBulk": True
+                        })
+                except Exception:
+                    batch_res = None
 
-        res = post_sheet_action({
-            "action": "delete",
-            "sheet": sheet_name,
-            "identifierColumn": match_col,
-            "identifierValue": match_val
-        })
-        return {
-            "success": True,
-            "operation": "DELETE",
-            "message": f"Deleted 1 record from {sheet_name}",
-            "deleted_record": target,
-            "response": res
-        }
+                if batch_res and batch_res.get("success"):
+                    deleted_items = matched
+                    res = batch_res
+                else:
+                    # Fallback to row-by-row deletion using unique Timestamps
+                    # Ensures backward compatibility if deployed Apps Script is older
+                    res = {"success": True, "method": "per_row_fallback"}
+                    for m in matched:
+                        ts = m.get("Timestamp")
+                        if ts:
+                            try:
+                                sub_res = post_sheet_action({
+                                    "action": "delete",
+                                    "sheet": sheet_name,
+                                    "identifierColumn": "Timestamp",
+                                    "identifierValue": ts
+                                })
+                                if sub_res.get("success"):
+                                    deleted_items.append(m)
+                            except Exception:
+                                pass
+                        else:
+                            deleted_items.append(m)
+
+            return {
+                "success": True,
+                "operation": "DELETE",
+                "sheet": "Recent Mails",
+                "message": f"Successfully deleted {len(deleted_items)} mail/inquiry record(s) from {sheet_name}",
+                "count": len(deleted_items),
+                "deleted_records": deleted_items[:10],
+                "response": res
+            }
 
     # =======================================================================
     # UPDATE
@@ -428,11 +711,19 @@ def process_sql_query(query: str, sheet_name: str, allowed_columns: list) -> dic
             "sheet": sheet_name,
             "job": row_data
         })
+
+        # Send Email Alert to Admin for Job Insertion
+        email_res = None
+        if sheet_name == "Recent Jobs" and res.get("success", True):
+            email_res = send_admin_email(*build_job_inserted_email(row_data))
+
         return {
             "success": True,
             "operation": "INSERT",
+            "sheet": sheet_name,
             "message": f"Added record to {sheet_name}",
             "record": row_data,
+            "admin_email_notification": email_res,
             "response": res
         }
 
@@ -454,14 +745,17 @@ def process_sql_query(query: str, sheet_name: str, allowed_columns: list) -> dic
         conditions = extract_where_conditions(where)
         filtered = []
         for r in rows:
-            match = True
-            for col_k, expected_v in conditions.items():
-                actual_v = next((str(r[c]).strip() for c in r if c.lower() == col_k), None)
-                if actual_v is None or actual_v.lower() != expected_v.lower():
-                    match = False
-                    break
-            if match:
+            if eval_sql_where(r, where):
                 filtered.append(r)
+            elif conditions:
+                match = True
+                for col_k, expected_v in conditions.items():
+                    actual_v = next((str(r[c]).strip() for c in r if c.lower() == col_k), None)
+                    if actual_v is None or actual_v.lower() != expected_v.lower():
+                        match = False
+                        break
+                if match:
+                    filtered.append(r)
 
         return {
             "success": True,
@@ -512,8 +806,10 @@ def manage_recent_jobs(query: str) -> str:
     AUTONOMOUS EXECUTION DIRECTIVE:
     - Execute tool queries directly and immediately without asking the user for confirmation or permission.
     - DO NOT trigger human-in-the-loop (HITL) confirmation prompts. All safety constraints (single-record mutation, SQL injection prevention, category enum verification) are handled automatically by the server.
+    - Inserting or deleting a job automatically dispatches a real-time email alert to the administrator.
     - If optional attributes (jobType, experience, openings, description) are omitted by the user, provide reasonable defaults automatically.
     - postedDate is automatically set to the current date; slug is auto-generated by the system.
+    - Job deletions are strictly restricted to 1 job at a time to protect valuable job listings.
 
     Supported SQL Operations:
     - SELECT: 'SELECT * FROM recent_jobs WHERE category = "Security"'
@@ -548,11 +844,12 @@ def manage_recent_mails(query: str) -> str:
     - Execute SELECT and DELETE queries directly and immediately without asking the user for confirmation or permission.
     - DO NOT trigger human-in-the-loop (HITL) confirmation prompts.
     - Inquiries are submitted automatically by the web application. Inserting new mails is not supported.
-    - Deletion is strictly safe and restricted to 1 record at a time by the backend server.
+    - BULK DELETION IS FULLY ALLOWED on recent_mails to clean up spam, junk, or multiple unwanted inquiry requests at once (e.g. DELETE FROM recent_mails WHERE Email = 'spam@mail.com', DELETE FROM recent_mails WHERE Name = '', etc.).
+    - Deletion of mails does NOT trigger admin emails.
 
     Supported Operations:
     - SELECT: 'SELECT * FROM recent_mails' or 'SELECT * FROM recent_mails WHERE Email = "rahul@mail.com"'
-    - DELETE: 'DELETE FROM recent_mails WHERE Email = "rahul@mail.com"'
+    - DELETE (Single or Bulk): 'DELETE FROM recent_mails WHERE Email = "spam@mail.com"' or 'DELETE FROM recent_mails WHERE Name = ""'
     """
     result = process_sql_query(query, "Recent Mails", MAILS_COLUMNS)
     return json.dumps(result, indent=2, ensure_ascii=False)
