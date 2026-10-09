@@ -23,8 +23,10 @@ except ImportError:
     except ImportError:
         from mcp.server import FastMCP
 from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from starlette.routing import Route
+from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 
 # Ensure UTF-8 output on Windows
 if sys.platform == "win32":
@@ -579,17 +581,22 @@ async def root_status(request):
     })
 
 
-# Collect routes from FastMCP's SSE app and Streamable HTTP app
-sse_routes = mcp.sse_app().routes
+# Initialize Streamable HTTP and SSE handlers
 stream_routes = mcp.streamable_http_app().routes
+streamable_handler = StreamableHTTPASGIApp(mcp.session_manager)
+sse_routes = mcp.sse_app().routes
 
 routes = [
+    # Human-readable status check on GET /
     Route("/", endpoint=root_status, methods=["GET"]),
+    # Handle MCP requests on POST / (in case URL is entered without /mcp)
+    Route("/", endpoint=streamable_handler, methods=["POST"]),
+    # Standard MCP StreamableHTTP endpoint
+    Route("/mcp", endpoint=streamable_handler, methods=["GET", "POST", "DELETE"]),
     Route("/api", endpoint=root_status, methods=["GET"]),
     Route("/api/index", endpoint=root_status, methods=["GET"]),
     Route("/api/index.py", endpoint=root_status, methods=["GET"]),
-    *sse_routes,
-    *stream_routes
+    *sse_routes
 ]
 
 class LifespanFallbackMiddleware:
@@ -609,6 +616,14 @@ class LifespanFallbackMiddleware:
 
 
 base_app = Starlette(debug=False, routes=routes)
+base_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
 app = LifespanFallbackMiddleware(base_app, mcp.session_manager)
 
 
