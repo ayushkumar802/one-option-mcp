@@ -592,7 +592,24 @@ routes = [
     *stream_routes
 ]
 
-app = Starlette(debug=False, routes=routes)
+class LifespanFallbackMiddleware:
+    """Ensures StreamableHTTP session manager task group is active in serverless environments."""
+    def __init__(self, inner_app, session_manager):
+        self.inner_app = inner_app
+        self.session_manager = session_manager
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http" and getattr(self.session_manager, "_task_group", None) is None:
+            async with self.session_manager._run_lock:
+                self.session_manager._has_started = False
+            async with self.session_manager.run():
+                await self.inner_app(scope, receive, send)
+            return
+        await self.inner_app(scope, receive, send)
+
+
+base_app = Starlette(debug=False, routes=routes)
+app = LifespanFallbackMiddleware(base_app, mcp.session_manager)
 
 
 if __name__ == "__main__":
