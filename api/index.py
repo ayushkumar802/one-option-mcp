@@ -585,6 +585,9 @@ stream_routes = mcp.streamable_http_app().routes
 
 routes = [
     Route("/", endpoint=root_status, methods=["GET"]),
+    Route("/api", endpoint=root_status, methods=["GET"]),
+    Route("/api/index", endpoint=root_status, methods=["GET"]),
+    Route("/api/index.py", endpoint=root_status, methods=["GET"]),
     *sse_routes,
     *stream_routes
 ]
