@@ -1,4 +1,4 @@
-mcp>=1.26.0
+mcp==1.26.0
 requests>=2.32.5
 sqlglot>=30.21.0
 starlette>=0.52.1
