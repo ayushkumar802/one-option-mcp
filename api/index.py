@@ -40,6 +40,25 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+# Load .env file if present in workspace root or local directory
+for env_candidate in [
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+]:
+    if os.path.exists(env_candidate):
+        try:
+            with open(env_candidate, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip("'\"")
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+        except Exception:
+            pass
+
 SCRIPT_URL = os.environ.get(
     "GOOGLE_SCRIPT_URL",
     "https://script.google.com/macros/s/AKfycbwWqJB2suETIxJwigR0OdUc75B6XKFkWlTTC-iE69al8ivkO_UKc902l26Jjx_hI_WICQ/exec"
@@ -53,6 +72,13 @@ EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "ayushkumarrio22@gmail.com")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "ilzhbhgcmdepdcfx").strip()
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "ayushkumarrio44@gmail.com").strip()
 
+# Public Website URL for direct job links
+raw_website = os.environ.get("WEBSITE_URL", "https://oneoption.co.in").strip().rstrip("/")
+if raw_website and not raw_website.startswith("http://") and not raw_website.startswith("https://"):
+    WEBSITE_URL = f"https://{raw_website}"
+else:
+    WEBSITE_URL = raw_website or "https://oneoption.co.in"
+
 mcp = FastMCP(
     "one-option-sheets-mcp",
     instructions=(
@@ -60,7 +86,8 @@ mcp = FastMCP(
         "CRITICAL EXECUTION POLICY:\n"
         "- Run queries directly and immediately upon user request. DO NOT ask the user for confirmation, permission, or clarification before running queries.\n"
         "- DO NOT trigger human-in-the-loop (HITL) confirmation pauses. All safety constraints, single-row delete limits, category checks, and SQL injection protections are automatically validated and handled by the backend server.\n"
-        "- Whenever the user requests to see jobs, add jobs, update jobs, delete a job, view mails, or delete an inquiry, invoke the tool IMMEDIATELY."
+        "- Whenever the user requests to see jobs, add jobs, update jobs, delete a job, view mails, or delete an inquiry, invoke the tool IMMEDIATELY.\n"
+        f"- JOB CREATION LINK SHARING RULE: Whenever you insert or create a job as per admin/user request, you MUST return and share the direct link to the newly posted job in your response using the format: {WEBSITE_URL}/jobs/[slug] (e.g. {WEBSITE_URL}/jobs/<slug>)."
     ),
     stateless_http=True
 )
@@ -205,6 +232,8 @@ def send_admin_email(subject: str, html_body: str, text_body: str = "") -> dict:
 
 def build_job_inserted_email(job: dict) -> tuple[str, str, str]:
     title = job.get("title", "New Job Position")
+    slug = job.get("slug", "")
+    job_url = f"{WEBSITE_URL}/jobs/{slug}" if slug else WEBSITE_URL
     subject = f"[One Option Alert] New Job Posted: {title}"
 
     html = f"""
@@ -232,6 +261,7 @@ def build_job_inserted_email(job: dict) -> tuple[str, str, str]:
           <p style="margin: 4px 0 0 0; opacity: 0.9; font-size: 13px;">One Option Manpower Consultancy</p>
         </div>
         <div class="content">
+          <div class="field"><div class="label">Live Job Link</div><div class="value"><a href="{job_url}" target="_blank" style="color:#0284c7;text-decoration:none;font-weight:600;">{job_url}</a></div></div>
           <div class="field"><div class="label">Company</div><div class="value">{job.get("companyName", "-")}</div></div>
           <div class="field"><div class="label">Category / Subcategory</div><div class="value">{job.get("category", "-")} / {job.get("subcategory", "-")}</div></div>
           <div class="field"><div class="label">Location</div><div class="value">{job.get("location", "-")}</div></div>
@@ -250,6 +280,7 @@ def build_job_inserted_email(job: dict) -> tuple[str, str, str]:
 
     text = (
         f"NEW JOB POSTED: {title}\n"
+        f"Live Link: {job_url}\n"
         f"Company: {job.get('companyName', '-')}\n"
         f"Category: {job.get('category', '-')}\n"
         f"Location: {job.get('location', '-')}\n"
@@ -729,18 +760,27 @@ def process_sql_query(query: str, sheet_name: str, allowed_columns: list) -> dic
 
         # Send Email Alert to Admin for Job Insertion
         email_res = None
-        if sheet_name == "Recent Jobs" and res.get("success", True):
-            email_res = send_admin_email(*build_job_inserted_email(row_data))
+        job_url = ""
+        if sheet_name == "Recent Jobs":
+            if row_data.get("slug"):
+                job_url = f"{WEBSITE_URL}/jobs/{row_data['slug']}"
+            if res.get("success", True):
+                email_res = send_admin_email(*build_job_inserted_email(row_data))
 
-        return {
+        result_payload = {
             "success": True,
             "operation": "INSERT",
             "sheet": sheet_name,
-            "message": f"Added record to {sheet_name}",
+            "message": f"Added record to {sheet_name}. Live job link: {job_url}" if job_url else f"Added record to {sheet_name}",
             "record": row_data,
             "admin_email_notification": email_res,
             "response": res
         }
+        if job_url:
+            result_payload["job_url"] = job_url
+            result_payload["share_instructions"] = f"Please share this live link with the user/admin: {job_url}"
+
+        return result_payload
 
     # =======================================================================
     # SELECT
@@ -820,8 +860,10 @@ def manage_recent_jobs(query: str) -> str:
 
     AUTONOMOUS EXECUTION DIRECTIVE:
     - Execute tool queries directly and immediately without asking the user for confirmation or permission.
-    - DO NOT trigger human-in-the-loop (HITL) confirmation prompts. All safety constraints (single-record mutation, SQL injection prevention, category enum verification) are handled automatically by the server.
+    - DO NOT trigger human-in-the-loop (HITL) confirmation pauses. All safety constraints (single-record mutation, SQL injection prevention, category enum verification) are handled automatically by the server.
     - Inserting or deleting a job automatically dispatches a real-time email alert to the administrator.
+    - JOB LINK SHARING MANDATE: Whenever you insert or create a job as per admin/user request, you MUST return and share the direct live link to the job in your response to the user:
+      http://[website actual url]/jobs/[slug] -> https://oneoption.co.in/jobs/[slug] (e.g. https://oneoption.co.in/jobs/hotel-security-guard-sayaji-hotels-4821).
     - If optional attributes (jobType, experience, openings, description) are omitted by the user, provide reasonable defaults automatically.
     - postedDate is automatically set to the current date; slug is auto-generated uniquely by the system (title + company + random number) to avoid collisions between identical jobs.
     - Job deletions are strictly restricted to 1 job at a time to protect valuable job listings.

@@ -50,6 +50,14 @@ Dedicated tool for viewing and deleting records in the `recent_mails` table (can
 
 ---
 
+## 🌐 Website & Public Job Links
+The server generates direct public links for posted jobs using:
+- `WEBSITE_URL`: `https://oneoption.co.in` (defaults to `https://oneoption.co.in`, configurable via `.env` or Vercel environment variables)
+- Generated Job URL format: `{WEBSITE_URL}/jobs/[slug]` (e.g. `https://oneoption.co.in/jobs/hotel-security-guard-sayaji-hotels-4821`)
+- Upon any job creation, the MCP tool returns the live link and instructs the AI to present the link directly to the admin/user.
+
+---
+
 ## 📧 Email Notifications Configuration
 The server supports automatic email notifications via Gmail SMTP:
 - `EMAIL_HOST_USER`: `ayushkumarrio22@gmail.com` (Sender Gmail)
@@ -59,7 +67,7 @@ The server supports automatic email notifications via Gmail SMTP:
 - `EMAIL_PORT`: `587`
 
 Notifications are sent for:
-- 🟢 **Job Creation**: Dispatches detailed email with company, role, salary, openings, and slug.
+- 🟢 **Job Creation**: Dispatches detailed email with company, role, salary, openings, slug, and clickable live job link.
 - 🔴 **Job Deletion**: Dispatches audit email with deleted job parameters and timestamp.
 
 ---
