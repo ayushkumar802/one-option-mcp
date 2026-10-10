@@ -19,13 +19,7 @@ from datetime import datetime
 import requests
 import sqlglot
 from sqlglot import exp
-try:
-    from mcp.server.fastmcp import FastMCP
-except ImportError:
-    try:
-        from mcp.server.mcpserver import MCPServer as FastMCP
-    except ImportError:
-        from mcp.server import FastMCP
+from mcp.server.fastmcp import FastMCP
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
