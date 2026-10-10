@@ -20,7 +20,7 @@ Manages the `recent_jobs` table.
 #### Key Guidelines:
 1. **Details handled automatically by the system**:
    - `postedDate`: Automatically generated as the current date in standard format (e.g. `'Oct 09, 2026'`).
-   - `slug`: Automatically derived from `title` and `location` (e.g. `'hotel-security-guard-indore'`).
+   - `slug`: Automatically constructed using `job_title` + `job_company` + random number (e.g. `'hotel-security-guard-sayaji-hotels-4821'`) to avoid collisions between identical jobs.
    - `subcategory`: Defaults to the category or is generated automatically.
 2. **Safety & Notifications**:
    - **Real-Time Admin Email Alerts**: Every time a job is **created (INSERT)** or **deleted (DELETE)**, an email notification is automatically dispatched to the admin (`ayushkumarrio44@gmail.com`).
@@ -29,8 +29,8 @@ Manages the `recent_jobs` table.
 #### Supported Operations:
 - **SELECT**: `SELECT * FROM recent_jobs WHERE category = 'Security'`
 - **INSERT**: `INSERT INTO recent_jobs (title, companyName, category, location, salaryRange, jobType, experience, openings) VALUES ('Light Vehicle Driver', 'Indore Transport', 'Driver', 'AB Road, Indore, MP', '₹16,000 – ₹21,000 / month', 'Full Time', '2–5 Years', '3 Openings')`
-- **UPDATE**: `UPDATE recent_jobs SET salaryRange = '₹18,000 – ₹22,000 / month' WHERE slug = 'hotel-security-guard-indore'`
-- **DELETE**: `DELETE FROM recent_jobs WHERE slug = 'hotel-security-guard-indore'` *(Strictly 1 job at a time; dispatches email alert!)*
+- **UPDATE**: `UPDATE recent_jobs SET salaryRange = '₹18,000 – ₹22,000 / month' WHERE slug = 'light-vehicle-driver-indore-transport-4821'`
+- **DELETE**: `DELETE FROM recent_jobs WHERE slug = 'light-vehicle-driver-indore-transport-4821'` *(Strictly 1 job at a time; dispatches email alert!)*
 
 ---
 
@@ -69,7 +69,7 @@ Notifications are sent for:
 1. **Table Enum Check**: Only `recent_jobs` and `recent_mails` are permitted.
 2. **Category Validation**: Rejects unrecognized categories and guides the user toward the allowed categories.
 3. **Missing Detail Check**: Blocks insertions if essential fields (`title`, `category`, `salaryRange`) are missing.
-4. **Auto-Generated Date & Slug**: Injects current `postedDate` (`MMM dd, yyyy`) and constructs consistent slugs (`title` + city suffix).
+4. **Auto-Generated Date & Slug**: Injects current `postedDate` (`MMM dd, yyyy`) and constructs collision-resistant slugs (`job_title` + `job_company` + random number).
 5. **Job Deletion Safety**: Strictly enforces single-item deletions for jobs.
 6. **Bulk Mail Cleanup**: Permits bulk deletion for `recent_mails` to clean spam submissions safely.
 7. **Harmful Command Prevention**: Blocks destructive commands (`DROP`, `TRUNCATE`, `ALTER`).
