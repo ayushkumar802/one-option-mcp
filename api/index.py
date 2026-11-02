@@ -831,11 +831,11 @@ def process_sql_query(query: str, sheet_name: str, allowed_columns: list) -> dic
 
         # 4. OFFSET support (default 0)
         offset_node = parsed.args.get("offset")
-        offset = int(offset_node.this.sql()) if offset_node else 0
+        offset = int(offset_node.expression.sql()) if offset_node and offset_node.expression else 0
 
         # 5. LIMIT support (default 15 to avoid oversized payloads)
         limit_node = parsed.args.get("limit")
-        limit = int(limit_node.this.sql()) if limit_node else 15
+        limit = int(limit_node.expression.sql()) if limit_node and limit_node.expression else 15
 
         paginated = result_rows[offset:offset + limit]
 
