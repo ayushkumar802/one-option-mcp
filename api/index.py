@@ -783,34 +783,70 @@ def process_sql_query(query: str, sheet_name: str, allowed_columns: list) -> dic
         rows = fetch_sheet_rows(sheet_name)
         where = parsed.find(exp.Where)
 
-        if not where:
-            return {
-                "success": True,
-                "operation": "SELECT",
-                "count": len(rows),
-                "data": rows[:15]
-            }
-
-        conditions = extract_where_conditions(where)
-        filtered = []
-        for r in rows:
-            if eval_sql_where(r, where):
-                filtered.append(r)
-            elif conditions:
-                match = True
-                for col_k, expected_v in conditions.items():
-                    actual_v = next((str(r[c]).strip() for c in r if c.lower() == col_k), None)
-                    if actual_v is None or actual_v.lower() != expected_v.lower():
-                        match = False
-                        break
-                if match:
+        # 1. Apply WHERE filter (if any)
+        if where:
+            conditions = extract_where_conditions(where)
+            filtered = []
+            for r in rows:
+                if eval_sql_where(r, where):
                     filtered.append(r)
+                elif conditions:
+                    match = True
+                    for col_k, expected_v in conditions.items():
+                        actual_v = next(
+                            (str(r[c]).strip() for c in r if c.lower() == col_k),
+                            None
+                        )
+                        if actual_v is None or actual_v.lower() != expected_v.lower():
+                            match = False
+                            break
+                    if match:
+                        filtered.append(r)
+        else:
+            filtered = rows
+
+        total_count = len(filtered)
+
+        # 2. Default to newest-first (reverse sheet order so bottom rows come first)
+        result_rows = list(reversed(filtered))
+
+        # 3. ORDER BY support (read from sqlglot parsed AST)
+        order_node = parsed.args.get("order")
+        if order_node:
+            for order_expr in order_node.expressions:
+                col_name = order_expr.this.sql().strip("'\"`")
+                is_desc = order_expr.args.get("desc", False)
+
+                def sort_key(row, _col=col_name):
+                    val = get_row_val(row, _col)
+                    # Parse date strings like "Oct 10, 2026" chronologically
+                    if _col.lower() == "posteddate":
+                        try:
+                            return datetime.strptime(val, "%b %d, %Y").timestamp()
+                        except (ValueError, TypeError):
+                            return 0.0
+                    return val.lower()
+
+                result_rows.sort(key=sort_key, reverse=is_desc)
+
+        # 4. OFFSET support (default 0)
+        offset_node = parsed.args.get("offset")
+        offset = int(offset_node.this.sql()) if offset_node else 0
+
+        # 5. LIMIT support (default 15 to avoid oversized payloads)
+        limit_node = parsed.args.get("limit")
+        limit = int(limit_node.this.sql()) if limit_node else 15
+
+        paginated = result_rows[offset:offset + limit]
 
         return {
             "success": True,
             "operation": "SELECT",
-            "count": len(filtered),
-            "data": filtered
+            "total_count": total_count,
+            "returned_count": len(paginated),
+            "offset": offset,
+            "limit": limit,
+            "data": paginated
         }
 
     return {"success": False, "error": "Unsupported SQL operation."}
