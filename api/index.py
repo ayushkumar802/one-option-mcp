@@ -1,5 +1,5 @@
 """
-Google Sheets MCP Server for "One Option" Manpower Company.
+Google Sheets MCP Server for "Manpower Indore - Oneoption" Manpower Company.
 Vercel Serverless Entrypoint.
 Provides:
 1. Health check & status at GET /
@@ -67,20 +67,21 @@ EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "ilzhbhgcmdepdcfx").
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "ayushkumarrio44@gmail.com").strip()
 
 # Public Website URL for direct job links
-raw_website = os.environ.get("WEBSITE_URL", "https://oneoption.co.in").strip().rstrip("/")
+raw_website = os.environ.get("WEBSITE_URL", "https://manpowerindore.in").strip().rstrip("/")
 if raw_website and not raw_website.startswith("http://") and not raw_website.startswith("https://"):
     WEBSITE_URL = f"https://{raw_website}"
 else:
-    WEBSITE_URL = raw_website or "https://oneoption.co.in"
+    WEBSITE_URL = raw_website or "https://manpowerindore.in"
 
 mcp = FastMCP(
-    "one-option-sheets-mcp",
+    "manpower-indore-mcp",
     instructions=(
-        "MCP Server for 'One Option' manpower consultancy managing job postings and customer inquiries on Google Sheets.\n\n"
+        "MCP Server for 'Manpower Indore - Oneoption' manpower consultancy managing job postings and customer inquiries on Google Sheets.\n\n"
         "CRITICAL EXECUTION POLICY:\n"
-        "- Run queries directly and immediately upon user request. DO NOT ask the user for confirmation, permission, or clarification before running queries.\n"
-        "- DO NOT trigger human-in-the-loop (HITL) confirmation pauses. All safety constraints, single-row delete limits, category checks, and SQL injection protections are automatically validated and handled by the backend server.\n"
-        "- Whenever the user requests to see jobs, add jobs, update jobs, delete a job, view mails, or delete an inquiry, invoke the tool IMMEDIATELY.\n"
+        "- For SELECT queries: Run directly and immediately upon user request.\n"
+        "- For INSERT queries: First run a SELECT to check if a similar job already exists (by title). If a duplicate is found, inform the user and ask whether to proceed or skip. Only then run the INSERT.\n"
+        "- For UPDATE and DELETE queries: First run a SELECT to fetch the target record and show its current details to the user. ASK THE USER FOR EXPLICIT CONFIRMATION (e.g. 'Is this the correct job?') before executing the UPDATE or DELETE. Do NOT update or delete without user confirmation.\n"
+        "- Whenever the user requests to see jobs, invoke the tool IMMEDIATELY.\n"
         f"- JOB CREATION LINK SHARING RULE: Whenever you insert or create a job as per admin/user request, you MUST return and share the direct link to the newly posted job in your response using the format: {WEBSITE_URL}/jobs/[slug] (e.g. {WEBSITE_URL}/jobs/<slug>)."
     ),
     stateless_http=True
@@ -205,7 +206,7 @@ def send_admin_email(subject: str, html_body: str, text_body: str = "") -> dict:
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = f"One Option System <{EMAIL_HOST_USER}>"
+        msg["From"] = f"Manpower Indore System <{EMAIL_HOST_USER}>"
         msg["To"] = ADMIN_EMAIL
 
         if text_body:
@@ -228,7 +229,7 @@ def build_job_inserted_email(job: dict) -> tuple[str, str, str]:
     title = job.get("title", "New Job Position")
     slug = job.get("slug", "")
     job_url = f"{WEBSITE_URL}/jobs/{slug}" if slug else WEBSITE_URL
-    subject = f"[One Option Alert] New Job Posted: {title}"
+    subject = f"[Manpower Indore] New Job Posted: {title}"
 
     html = f"""
     <!DOCTYPE html>
@@ -252,7 +253,7 @@ def build_job_inserted_email(job: dict) -> tuple[str, str, str]:
         <div class="header">
           <span class="badge">Job Created</span>
           <h2 style="margin: 8px 0 0 0; font-size: 20px;">{title}</h2>
-          <p style="margin: 4px 0 0 0; opacity: 0.9; font-size: 13px;">One Option Manpower Consultancy</p>
+          <p style="margin: 4px 0 0 0; opacity: 0.9; font-size: 13px;">Manpower Indore - Oneoption</p>
         </div>
         <div class="content">
           <div class="field"><div class="label">Live Job Link</div><div class="value"><a href="{job_url}" target="_blank" style="color:#0284c7;text-decoration:none;font-weight:600;">{job_url}</a></div></div>
@@ -265,7 +266,7 @@ def build_job_inserted_email(job: dict) -> tuple[str, str, str]:
           <div class="field"><div class="label">Posted Date</div><div class="value">{job.get("postedDate", "-")}</div></div>
         </div>
         <div class="footer">
-          Notification dispatched by One Option MCP Server • {datetime.now().strftime('%d %b %Y, %I:%M %p')}
+          Notification dispatched by Manpower Indore MCP Server • {datetime.now().strftime('%d %b %Y, %I:%M %p')}
         </div>
       </div>
     </body>
@@ -288,7 +289,7 @@ def build_job_inserted_email(job: dict) -> tuple[str, str, str]:
 def build_job_deleted_email(job: dict) -> tuple[str, str, str]:
     title = job.get("title", "Job Position")
     slug = job.get("slug", "-")
-    subject = f"[One Option Alert] Job Deleted: {title}"
+    subject = f"[Manpower Indore] Job Deleted: {title}"
 
     html = f"""
     <!DOCTYPE html>
@@ -312,7 +313,7 @@ def build_job_deleted_email(job: dict) -> tuple[str, str, str]:
         <div class="header">
           <span class="badge">Job Deleted</span>
           <h2 style="margin: 8px 0 0 0; font-size: 20px;">{title}</h2>
-          <p style="margin: 4px 0 0 0; opacity: 0.9; font-size: 13px;">One Option Manpower Consultancy</p>
+          <p style="margin: 4px 0 0 0; opacity: 0.9; font-size: 13px;">Manpower Indore - Oneoption</p>
         </div>
         <div class="content">
           <div class="field"><div class="label">Slug / Identifier</div><div class="value"><code style="background:#fee2e2;padding:2px 6px;border-radius:4px;color:#991b1b;">{slug}</code></div></div>
@@ -323,7 +324,7 @@ def build_job_deleted_email(job: dict) -> tuple[str, str, str]:
           <div class="field"><div class="label">Deleted At</div><div class="value">{datetime.now().strftime('%d %b %Y, %I:%M %p')}</div></div>
         </div>
         <div class="footer">
-          Notification dispatched by One Option MCP Server
+          Notification dispatched by Manpower Indore MCP Server
         </div>
       </div>
     </body>
@@ -859,10 +860,11 @@ def process_sql_query(query: str, sheet_name: str, allowed_columns: list) -> dic
 @mcp.tool()
 def manage_recent_jobs(query: str) -> str:
     """
-    CRUD tool for the 'Recent Jobs' sheet of 'One Option' (manpower & recruitment consultancy).
+    CRUD tool for the 'Recent Jobs' sheet of 'Manpower Indore - Oneoption' (manpower & recruitment consultancy).
 
     Company Context:
-    'One Option' connects job seekers with commercial roles in Indore and MP (security, catering, logistics, etc.).
+    'Manpower Indore - Oneoption' connects job seekers with commercial roles in Indore and MP (security, catering, logistics, etc.).
+    Website: https://manpowerindore.in
 
     Table Name: recent_jobs
 
@@ -888,12 +890,35 @@ def manage_recent_jobs(query: str) -> str:
     - benefits (string)
     - featured (string: 'TRUE' or 'FALSE')
 
-    AUTONOMOUS EXECUTION DIRECTIVE:
-    - Execute tool queries directly and immediately without asking the user for confirmation or permission.
-    - DO NOT trigger human-in-the-loop (HITL) confirmation pauses. All safety constraints (single-record mutation, SQL injection prevention, category enum verification) are handled automatically by the server.
+    PRE-FLIGHT CHECK POLICY (MANDATORY — Follow this BEFORE every mutating operation):
+
+    1. Before INSERT (Add a new job):
+       - FIRST run: SELECT * FROM recent_jobs WHERE title LIKE '%<job_title_keyword>%'
+       - Check the results for any existing job with a similar title/company.
+       - If a duplicate or very similar job is found, INFORM the user: "A similar job already exists: [title] at [company] (slug: [slug]). Do you still want to create a new one?"
+       - Only proceed with the INSERT after the user confirms, OR if no duplicate was found.
+       - This prevents accidental duplicate postings (e.g. the same job being added twice due to retries).
+
+    2. Before UPDATE (Modify an existing job):
+       - FIRST run: SELECT * FROM recent_jobs WHERE slug = '<target_slug>'
+       - Show the user the CURRENT state of the job (title, company, category, salary, etc.).
+       - ASK the user: "Is this the correct job you want to update? Here are the current details: [details]"
+       - Only proceed with the UPDATE query after the user explicitly confirms.
+
+    3. Before DELETE (Remove a job):
+       - FIRST run: SELECT * FROM recent_jobs WHERE slug = '<target_slug>'
+       - Show the user the FULL details of the job that will be deleted.
+       - ASK the user: "Are you sure you want to delete this job? [title] at [company] (slug: [slug])"
+       - Only proceed with the DELETE query after the user explicitly confirms.
+       - NEVER delete without user confirmation.
+
+    4. For SELECT (View/search jobs):
+       - Execute IMMEDIATELY without any confirmation needed.
+
+    EXECUTION DIRECTIVES:
     - Inserting or deleting a job automatically dispatches a real-time email alert to the administrator.
-    - JOB LINK SHARING MANDATE: Whenever you insert or create a job as per admin/user request, you MUST return and share the direct live link to the job in your response to the user:
-      http://[website actual url]/jobs/[slug] -> https://oneoption.co.in/jobs/[slug] (e.g. https://oneoption.co.in/jobs/hotel-security-guard-sayaji-hotels-4821).
+    - JOB LINK SHARING MANDATE: Whenever you insert or create a job, you MUST return and share the direct live link to the job in your response:
+      https://manpowerindore.in/jobs/[slug] (e.g. https://manpowerindore.in/jobs/hotel-security-guard-sayaji-hotels-4821).
     - If optional attributes (jobType, experience, openings, description) are omitted by the user, provide reasonable defaults automatically.
     - postedDate is automatically set to the current date; slug is auto-generated uniquely by the system (title + company + random number) to avoid collisions between identical jobs.
     - Job deletions are strictly restricted to 1 job at a time to protect valuable job listings.
@@ -911,10 +936,10 @@ def manage_recent_jobs(query: str) -> str:
 @mcp.tool()
 def manage_recent_mails(query: str) -> str:
     """
-    Tool for viewing and deleting records in the 'Recent Mails' sheet of 'One Option' (manpower & recruitment consultancy).
+    Tool for viewing and deleting records in the 'Recent Mails' sheet of 'Manpower Indore - Oneoption' (manpower & recruitment consultancy).
 
     Company Context:
-    Stores inquiries, candidate applications, and client staffing requests submitted through the portal.
+    Stores inquiries, candidate applications, and client staffing requests submitted through the portal at https://manpowerindore.in.
 
     Table Name: recent_mails
     Columns & Structure:
@@ -927,11 +952,15 @@ def manage_recent_mails(query: str) -> str:
     - Job Name (string, targeted role or budget)
     - Message (string, applicant message or query details)
 
-    AUTONOMOUS EXECUTION DIRECTIVE:
-    - Execute SELECT and DELETE queries directly and immediately without asking the user for confirmation or permission.
-    - DO NOT trigger human-in-the-loop (HITL) confirmation prompts.
+    PRE-FLIGHT CHECK POLICY:
+    - For SELECT: Execute IMMEDIATELY without confirmation.
+    - For DELETE: First run a SELECT to review what will be deleted. For bulk deletions,
+      show the user the count and sample records. ASK the user to confirm before executing
+      the DELETE query. Do NOT delete without user confirmation.
+
+    EXECUTION DIRECTIVES:
     - Inquiries are submitted automatically by the web application. Inserting new mails is not supported.
-    - BULK DELETION IS FULLY ALLOWED on recent_mails to clean up spam, junk, or multiple unwanted inquiry requests at once (e.g. DELETE FROM recent_mails WHERE Email = 'spam@mail.com', DELETE FROM recent_mails WHERE Name = '', etc.).
+    - BULK DELETION IS ALLOWED on recent_mails to clean up spam, junk, or multiple unwanted inquiry requests at once (e.g. DELETE FROM recent_mails WHERE Email = 'spam@mail.com', DELETE FROM recent_mails WHERE Name = '', etc.).
     - Deletion of mails does NOT trigger admin emails.
 
     Supported Operations:
@@ -949,8 +978,8 @@ def manage_recent_mails(query: str) -> str:
 async def root_status(request):
     return JSONResponse({
         "status": "online",
-        "name": "one-option-sheets-mcp",
-        "description": "MCP Server for One Option Manpower Consultancy (Google Sheets)",
+        "name": "manpower-indore-mcp",
+        "description": "MCP Server for Manpower Indore - Oneoption (Google Sheets)",
         "endpoints": {
             "streamable_http": "/mcp",
             "sse": "/sse",
@@ -1011,7 +1040,7 @@ app = LifespanFallbackMiddleware(base_app, mcp.session_manager)
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--test":
-        print("Testing One Option MCP Tools with New Enums & Auto-Fields...")
+        print("Testing Manpower Indore MCP Tools with New Enums & Auto-Fields...")
 
         print("\n1. Test SELECT Jobs:")
         print(manage_recent_jobs("SELECT * FROM recent_jobs WHERE category = 'Security'"))
