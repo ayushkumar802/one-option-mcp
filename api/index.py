@@ -79,7 +79,7 @@ mcp = FastMCP(
         "MCP Server for 'Manpower Indore - Oneoption' manpower consultancy managing job postings and customer inquiries on Google Sheets.\n\n"
         "CRITICAL EXECUTION POLICY:\n"
         "- For SELECT queries: Run directly and immediately upon user request.\n"
-        "- For INSERT queries: First run a SELECT to check if a similar job already exists (by title). If a duplicate is found, inform the user and ask whether to proceed or skip. Only then run the INSERT.\n"
+        "- For INSERT queries: Run directly and immediately. The server automatically prevents duplicate job postings (same title + company + location + date). No pre-flight SELECT needed.\n"
         "- For UPDATE and DELETE queries: First run a SELECT to fetch the target record and show its current details to the user. ASK THE USER FOR EXPLICIT CONFIRMATION (e.g. 'Is this the correct job?') before executing the UPDATE or DELETE. Do NOT update or delete without user confirmation.\n"
         "- Whenever the user requests to see jobs, invoke the tool IMMEDIATELY.\n"
         f"- JOB CREATION LINK SHARING RULE: Whenever you insert or create a job as per admin/user request, you MUST return and share the direct link to the newly posted job in your response using the format: {WEBSITE_URL}/jobs/[slug] (e.g. {WEBSITE_URL}/jobs/<slug>)."
@@ -214,7 +214,7 @@ def send_admin_email(subject: str, html_body: str, text_body: str = "") -> dict:
         if html_body:
             msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT, timeout=12) as server:
+        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT, timeout=5) as server:
             server.starttls()
             server.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
             server.sendmail(EMAIL_HOST_USER, [ADMIN_EMAIL], msg.as_string())
@@ -747,6 +747,47 @@ def process_sql_query(query: str, sheet_name: str, allowed_columns: list) -> dic
             if not row_data.get("jobType"):
                 row_data["jobType"] = "Full Time"
 
+            # 6. SERVER-SIDE DEDUPLICATION CHECK
+            #    Prevents duplicate jobs when LLM retries due to mobile timeouts.
+            #    Match key: (title + companyName + location + postedDate)
+            #    Only blocks same-day duplicates — re-posting tomorrow is allowed.
+            try:
+                existing_rows = fetch_sheet_rows(sheet_name)
+                norm = lambda s: re.sub(r"\s+", " ", (s or "").strip().lower())
+                target_key = (
+                    norm(row_data.get("title")),
+                    norm(row_data.get("companyName")),
+                    norm(row_data.get("location")),
+                    row_data.get("postedDate"),
+                )
+                for existing in existing_rows:
+                    existing_key = (
+                        norm(existing.get("title")),
+                        norm(existing.get("companyName")),
+                        norm(existing.get("location")),
+                        str(existing.get("postedDate", "")).strip(),
+                    )
+                    if existing_key == target_key:
+                        existing_slug = existing.get("slug", "")
+                        existing_url = f"{WEBSITE_URL}/jobs/{existing_slug}" if existing_slug else ""
+                        return {
+                            "success": True,
+                            "deduplicated": True,
+                            "operation": "INSERT",
+                            "sheet": sheet_name,
+                            "message": (
+                                f"This job already exists (same title, company, location, and date). "
+                                f"Returning existing record instead of creating a duplicate."
+                            ),
+                            "record": existing,
+                            "job_url": existing_url,
+                            "share_instructions": f"Please share this live link with the user/admin: {existing_url}" if existing_url else None,
+                        }
+            except Exception:
+                # If dedup check fails (e.g. network issue), proceed with insert anyway
+                # to avoid blocking legitimate job creation
+                pass
+
         res = post_sheet_action({
             "action": "insert",
             "sheet": sheet_name,
@@ -893,11 +934,10 @@ def manage_recent_jobs(query: str) -> str:
     PRE-FLIGHT CHECK POLICY (MANDATORY — Follow this BEFORE every mutating operation):
 
     1. Before INSERT (Add a new job):
-       - FIRST run: SELECT * FROM recent_jobs WHERE title LIKE '%<job_title_keyword>%'
-       - Check the results for any existing job with a similar title/company.
-       - If a duplicate or very similar job is found, INFORM the user: "A similar job already exists: [title] at [company] (slug: [slug]). Do you still want to create a new one?"
-       - Only proceed with the INSERT after the user confirms, OR if no duplicate was found.
-       - This prevents accidental duplicate postings (e.g. the same job being added twice due to retries).
+       - Execute the INSERT IMMEDIATELY. No pre-flight SELECT is needed.
+       - The server automatically checks for duplicate jobs (same title + company + location + date).
+       - If a duplicate is detected, the server returns the existing record instead of creating a new one.
+       - You do NOT need to run a SELECT first — the server handles deduplication.
 
     2. Before UPDATE (Modify an existing job):
        - FIRST run: SELECT * FROM recent_jobs WHERE slug = '<target_slug>'
